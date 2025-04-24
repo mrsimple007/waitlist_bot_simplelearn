@@ -4,6 +4,9 @@ from datetime import datetime
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler
 from supabase import create_client, Client
+from http.server import HTTPServer, BaseHTTPRequestHandler
+import threading
+import json
 
 # Enable logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -20,6 +23,25 @@ supabase: Client = create_client(supabase_url, supabase_key)
 # Bot setup
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "7782813133:AAHlfWIy_wDkug4KqjTN8yWtbBfWEiFYYko")
 
+# HTTP Server setup
+PORT = int(os.environ.get("PORT", 8080))
+
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == '/health':
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            response = json.dumps({"status": "healthy"})
+            self.wfile.write(response.encode())
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+def run_http_server():
+    server = HTTPServer(('0.0.0.0', PORT), HealthCheckHandler)
+    logger.info(f"HTTP server running on port {PORT}")
+    server.serve_forever()
 
 START = 1
 
@@ -90,11 +112,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     response = "Thanks for your message! If you need information about our project, please use the /help command."
     await update.message.reply_text(response)
 
-
-
-
 def main() -> None:
-    """Start the bot."""
+    """Start the bot and HTTP server."""
+    # Start HTTP server in a separate thread
+    http_thread = threading.Thread(target=run_http_server)
+    http_thread.daemon = True
+    http_thread.start()
+
     # Create the Application
     application = Application.builder().token(BOT_TOKEN).build()
 
