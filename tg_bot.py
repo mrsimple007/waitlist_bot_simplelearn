@@ -7,9 +7,6 @@ from supabase import create_client, Client
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
 import json
-import signal
-import sys
-import asyncio
 
 # Enable logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -41,28 +38,10 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
             self.send_response(404)
             self.end_headers()
 
-    def log_message(self, format, *args):
-        # Override to prevent logging every request
-        pass
-
-class HTTPServerThread(threading.Thread):
-    def __init__(self):
-        super().__init__()
-        self.daemon = True
-        self.server = HTTPServer(('0.0.0.0', PORT), HealthCheckHandler)
-        
-    def run(self):
-        try:
-            logger.info(f"HTTP server running on port {PORT}")
-            self.server.serve_forever()
-        except Exception as e:
-            logger.error(f"HTTP server error: {e}")
-        finally:
-            self.server.server_close()
-
-    def shutdown(self):
-        self.server.shutdown()
-        self.server.server_close()
+def run_http_server():
+    server = HTTPServer(('0.0.0.0', PORT), HealthCheckHandler)
+    logger.info(f"HTTP server running on port {PORT}")
+    server.serve_forever()
 
 START = 1
 
@@ -133,11 +112,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     response = "Thanks for your message! If you need information about our project, please use the /help command."
     await update.message.reply_text(response)
 
-async def main() -> None:
+def main() -> None:
     """Start the bot and HTTP server."""
     # Start HTTP server in a separate thread
-    http_server = HTTPServerThread()
-    http_server.start()
+    http_thread = threading.Thread(target=run_http_server)
+    http_thread.daemon = True
+    http_thread.start()
 
     # Create the Application
     application = Application.builder().token(BOT_TOKEN).build()
@@ -155,39 +135,27 @@ async def main() -> None:
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    # Set up signal handlers
-    def signal_handler(signum, frame):
-        logger.info("Received shutdown signal")
-        http_server.shutdown()
-        application.stop()
-        sys.exit(0)
-
-    signal.signal(signal.SIGTERM, signal_handler)
-    signal.signal(signal.SIGINT, signal_handler)
-
-    # Run the bot
-    await application.initialize()
-    await application.start()
-    await application.run_polling()
+    # Run the bot until the user presses Ctrl-C
+    application.run_polling()
 
 def test_supabase_connection():
     """Test the Supabase connection and API key validity."""
     try:
         result = supabase.table('tgBot_waitlist').select("*").limit(1).execute()
-        logger.info("✅ Supabase connection successful!")
+        print("✅ Supabase connection successful!")
         return True
     except Exception as e:
-        logger.error(f"❌ Supabase connection failed: {e}")
-        logger.error("\nPossible solutions:")
-        logger.error("1. Check that your API key is correct")
-        logger.error("2. Ensure you're using the 'service_role' key, not the 'anon' key")
-        logger.error("3. Verify that the 'users' table exists in your database")
-        logger.error("4. Check network connectivity to the Supabase server")
+        print(f"❌ Supabase connection failed: {e}")
+        print("\nPossible solutions:")
+        print("1. Check that your API key is correct")
+        print("2. Ensure you're using the 'service_role' key, not the 'anon' key")
+        print("3. Verify that the 'users' table exists in your database")
+        print("4. Check network connectivity to the Supabase server")
         return False
 
 # Call this function before starting the bot
 if __name__ == "__main__":
     if test_supabase_connection():
-        asyncio.run(main())
+        main()
     else:
-        logger.error("Bot not started due to database connection issues.")
+        print("Bot not started due to database connection issues.")
