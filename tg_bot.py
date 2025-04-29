@@ -7,23 +7,25 @@ from supabase import create_client, Client
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
 import json
+from dotenv import load_dotenv
 
-# Enable logging
+load_dotenv()
+
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Supabase setup
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://enygxibkgjoqjmqsiwdi.supabase.co")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVueWd4aWJrZ2pvcWptcXNpd2RpIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0NTMzOTkyOCwiZXhwIjoyMDYwOTE1OTI4fQ.YRUhwRt7SaAIejZebqxcRWism5Iuw79qS4dh4msjBFM")
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
-supabase_url = SUPABASE_URL
-supabase_key = SUPABASE_KEY
-supabase: Client = create_client(supabase_url, supabase_key)
+if not SUPABASE_URL or not SUPABASE_KEY:
+    raise ValueError("Missing required environment variables SUPABASE_URL and SUPABASE_KEY")
 
-# Bot setup
-BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "7782813133:AAHlfWIy_wDkug4KqjTN8yWtbBfWEiFYYko")
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# HTTP Server setup
+BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+if not BOT_TOKEN:
+    raise ValueError("Missing required environment variable TELEGRAM_BOT_TOKEN")
+
 PORT = int(os.environ.get("PORT", 8080))
 
 class HealthCheckHandler(BaseHTTPRequestHandler):
@@ -48,18 +50,33 @@ START = 1
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send welcome message when the command /start is issued."""
     user = update.effective_user
-    user_data = {
-        'user_id': str(user.id),
-        'first_name': user.first_name,
-        'last_name': user.last_name if user.last_name else None,
-        'username': user.username if user.username else None,
-        'join_date': datetime.now().isoformat()
-    }
     
-    # Save user to Supabase
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+    
     try:
-        result = supabase.table('tgBot_waitlist').upsert(user_data).execute()
-        logger.info(f"User data saved: {user.id}")
+        tg_user_data = {
+            'user_id': str(user.id),
+            'first_name': user.first_name,
+            'last_name': user.last_name if user.last_name else None,
+            'username': user.username if user.username else None,
+            'created_at': datetime.now().isoformat()
+        }
+        
+        supabase.table('tgbot_waitlist').upsert(tg_user_data).execute()
+        logger.info(f"User data saved to tgbot_waitlist: {user.id}")
+        
+        # Then insert into simplelearn_users
+        simplelearn_user_data = {
+            'user_id': str(user.id),
+            'first_name': user.first_name,
+            'last_name': user.last_name if user.last_name else None,
+            'username': user.username if user.username else None,
+            'created_at': datetime.now().isoformat(),
+            'updated_at': datetime.now().isoformat()
+        }
+        
+        supabase.table('simplelearn_users').upsert(simplelearn_user_data).execute()
+        logger.info(f"User data saved to simplelearn_users: {user.id}")
     except Exception as e:
         logger.error(f"Error saving user data: {e}")
 
@@ -72,14 +89,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         f"  • 📝 Exam preparation modules\n"
         f"  • 📅 Personalized study plans\n\n"
         f"⏱️ *Coming Soon in 2025!*\n\n"
-        f"We'll keep you updated on our progress and exciting new features. Type /help to discover more details about our upcoming project.\n\n"
+        f"Join our channel: @SimpleLearnUz. We'll keep you updated on our progress and exciting new features. Type /help to discover more details about our upcoming project. \n\n"
         f"_Your journey to smarter learning starts here!_"
     )
     
     await update.message.reply_text(welcome_message, parse_mode='Markdown')
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Send detailed information about the project when the command /help is issued."""
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+    
     help_message = (
         "🚀 *About Our Upcoming Project*\n\n"
         "🧠 *We are planning to add these Core Features*\n\n"
@@ -108,21 +126,18 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await update.message.reply_text(help_message, parse_mode='Markdown')
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle incoming messages and respond appropriately."""
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+    
     response = "Thanks for your message! If you need information about our project, please use the /help command."
     await update.message.reply_text(response)
 
 def main() -> None:
-    """Start the bot and HTTP server."""
-    # Start HTTP server in a separate thread
     http_thread = threading.Thread(target=run_http_server)
     http_thread.daemon = True
     http_thread.start()
 
-    # Create the Application
     application = Application.builder().token(BOT_TOKEN).build()
 
-    # Add conversation handler
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
@@ -135,13 +150,12 @@ def main() -> None:
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    # Run the bot until the user presses Ctrl-C
     application.run_polling()
 
 def test_supabase_connection():
     """Test the Supabase connection and API key validity."""
     try:
-        result = supabase.table('tgBot_waitlist').select("*").limit(1).execute()
+        result = supabase.table('tgbot_waitlist').select("*").limit(1).execute()
         print("✅ Supabase connection successful!")
         return True
     except Exception as e:
@@ -149,11 +163,10 @@ def test_supabase_connection():
         print("\nPossible solutions:")
         print("1. Check that your API key is correct")
         print("2. Ensure you're using the 'service_role' key, not the 'anon' key")
-        print("3. Verify that the 'users' table exists in your database")
+        print("3. Verify that the 'tgBot_waitlist' table exists in your database")
         print("4. Check network connectivity to the Supabase server")
         return False
 
-# Call this function before starting the bot
 if __name__ == "__main__":
     if test_supabase_connection():
         main()
