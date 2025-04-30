@@ -21,7 +21,7 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-BOT_TOKEN = os.environ.get("ELEVENLABS_API_KEY")
+BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 
 print("Using Telegram Bot Token:", BOT_TOKEN)
 
