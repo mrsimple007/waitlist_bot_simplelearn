@@ -39,8 +39,6 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
             self.send_response(404)
             self.end_headers()
 
-print("TOKEN USED:", "7433588235:AAFF-DU4G899HTHm1YBT7lyQ6s-RJyp5ezc")
-
 def run_http_server():
     server = HTTPServer(('0.0.0.0', PORT), HealthCheckHandler)
     logger.info(f"HTTP server running on port {PORT}")
